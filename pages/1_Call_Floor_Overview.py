@@ -3,30 +3,52 @@ import pandas as pd
 import plotly.express as px
 from database.connection import load_callfloor
 
-st.title("Call Floor Overview")
-df=load_callfloor()
+st.set_page_config(
+    page_title="Call Floor Overview",
+    page_icon="📞",
+    layout="wide"
+)
 
+st.title("📞 Call Floor Overview")
+
+# -----------------------------
+# Load Data
+# -----------------------------
+try:
+    df = load_callfloor()
+
+    if df.empty:
+        st.warning("No records returned from dws.vw_CallFloorOverview")
+        st.stop()
+
+except Exception as e:
+    st.error(f"Failed to load data: {e}")
+    st.stop()
+
+# -----------------------------
+# Sidebar Filters
+# -----------------------------
 with st.sidebar:
 
     st.header("Filters")
 
-    if "CampaignName" in df.columns:
+    if "CampaignCode" in df.columns:
         campaigns = st.multiselect(
             "Campaign",
-            sorted(df["CampaignName"].dropna().unique())
+            sorted(df["CampaignCode"].dropna().unique())
         )
 
         if campaigns:
-            df = df[df["CampaignName"].isin(campaigns)]
+            df = df[df["CampaignCode"].isin(campaigns)]
 
-    if "BatchName" in df.columns:
+    if "BatchCode" in df.columns:
         batches = st.multiselect(
             "Batch",
-            sorted(df["BatchName"].dropna().unique())
+            sorted(df["BatchCode"].dropna().unique())
         )
 
         if batches:
-            df = df[df["BatchName"].isin(batches)]
+            df = df[df["BatchCode"].isin(batches)]
 
     if "DialerTypeName" in df.columns:
         dialers = st.multiselect(
@@ -37,65 +59,170 @@ with st.sidebar:
         if dialers:
             df = df[df["DialerTypeName"].isin(dialers)]
 
-unique_leads=int(df['UniqueLeadCount'].sum()) if 'UniqueLeadCount' in df.columns else 0
-phones=int(df['PhoneCount'].sum()) if 'PhoneCount' in df.columns else 0
-calls=int(df['CallAttemptCount'].sum()) if 'CallAttemptCount' in df.columns else 0
-contacts=int(df['ContactAttemptCount'].sum()) if 'ContactAttemptCount' in df.columns else 0
-success=int(df['SuccessAttemptCount'].sum()) if 'SuccessAttemptCount' in df.columns else 0
-sales=int(df['SalesCount'].sum()) if 'SalesCount' in df.columns else 0
+# -----------------------------
+# KPI Calculations
+# -----------------------------
+unique_leads = (
+    int(df["UniqueLeadCount"].sum())
+    if "UniqueLeadCount" in df.columns else 0
+)
 
-cols=st.columns(6)
-for c,v,t in zip(cols,[unique_leads,phones,calls,contacts,success,sales],["Unique Leads","Phone Count","Call Attempts","Contacts","Success","Sales"]):
-    c.metric(t,f'{v:,}')
+phones = (
+    int(df["PhoneCount"].sum())
+    if "PhoneCount" in df.columns else 0
+)
 
-contact_rate = (contacts / calls * 100) if calls else 0
-success_rate = (success / contacts * 100) if contacts else 0
-sales_conversion = (sales / success * 100) if success else 0
+calls = (
+    int(df["CallAttemptCount"].sum())
+    if "CallAttemptCount" in df.columns else 0
+)
 
-row2 = st.columns(3)
+contacts = (
+    int(df["ContactAttemptCount"].sum())
+    if "ContactAttemptCount" in df.columns else 0
+)
 
-row2[0].metric(
+success = (
+    int(df["SuccessAttemptCount"].sum())
+    if "SuccessAttemptCount" in df.columns else 0
+)
+
+sales = (
+    int(df["SalesCount"].sum())
+    if "SalesCount" in df.columns else 0
+)
+
+# -----------------------------
+# KPI Row 1
+# -----------------------------
+kpi1 = st.columns(6)
+
+kpi1[0].metric("Unique Leads", f"{unique_leads:,}")
+kpi1[1].metric("Phone Count", f"{phones:,}")
+kpi1[2].metric("Call Attempts", f"{calls:,}")
+kpi1[3].metric("Contacts", f"{contacts:,}")
+kpi1[4].metric("Success", f"{success:,}")
+kpi1[5].metric("Sales", f"{sales:,}")
+
+# -----------------------------
+# KPI Row 2
+# -----------------------------
+contact_rate = (
+    (contacts / calls) * 100
+    if calls else 0
+)
+
+success_rate = (
+    (success / contacts) * 100
+    if contacts else 0
+)
+
+sales_conversion = (
+    (sales / success) * 100
+    if success else 0
+)
+
+kpi2 = st.columns(3)
+
+kpi2[0].metric(
     "Contact Rate",
     f"{contact_rate:.2f}%"
 )
 
-row2[1].metric(
+kpi2[1].metric(
     "Success Rate",
     f"{success_rate:.2f}%"
 )
 
-row2[2].metric(
+kpi2[2].metric(
     "Sales Conversion",
     f"{sales_conversion:.2f}%"
 )
 
-if 'CampaignName' in df.columns and 'CallAttemptCount' in df.columns:
-    agg = (
-    df.groupby("CampaignName", as_index=False)
-      ["CallAttemptCount"]
-      .sum()
-      .sort_values(
-        "CallAttemptCount",
-        ascending=False
-      )
-)
-    st.plotly_chart(px.bar(agg,x='CampaignName',y='CallAttemptCount',title='Calls by Campaign'),use_container_width=True)
-
-if 'WrapupCategoryName' in df.columns and 'CallAttemptCount' in df.columns:
-    w=df.groupby('WrapupCategoryName',as_index=False)['CallAttemptCount'].sum()
-    st.plotly_chart(px.bar(w,x='CallAttemptCount',y='WrapupCategoryName',orientation='h',title='Disposition Analysis'),use_container_width=True)
-
+# -----------------------------
+# Calls By Campaign
+# -----------------------------
 if (
-    "DialerTypeName" in df.columns
-    and "ContactAttemptCount" in df.columns
+    "CampaignName" in df.columns
+    and "CallAttemptCount" in df.columns
 ):
+
+    campaign_calls = (
+        df.groupby(
+            "CampaignName",
+            as_index=False
+        )["CallAttemptCount"]
+        .sum()
+        .sort_values(
+            "CallAttemptCount",
+            ascending=False
+        )
+    )
+
+    st.subheader("Calls by Campaign")
+
+    fig_campaign = px.bar(
+        campaign_calls,
+        x="CampaignName",
+        y="CallAttemptCount",
+        title="Call Attempts by Campaign"
+    )
+
+    st.plotly_chart(
+        fig_campaign,
+        use_container_width=True
+    )
+
+# -----------------------------
+# Disposition Analysis
+# -----------------------------
+if (
+    "WrapupCategoryName" in df.columns
+    and "CallAttemptCount" in df.columns
+):
+
+    disposition = (
+        df.groupby(
+            "WrapupCategoryName",
+            as_index=False
+        )["CallAttemptCount"]
+        .sum()
+        .sort_values(
+            "CallAttemptCount",
+            ascending=False
+        )
+    )
+
+    st.subheader("Disposition Analysis")
+
+    fig_disp = px.bar(
+        disposition,
+        x="CallAttemptCount",
+        y="WrapupCategoryName",
+        orientation="h"
+    )
+
+    st.plotly_chart(
+        fig_disp,
+        use_container_width=True
+    )
+
+# -----------------------------
+# Dialer Analysis
+# -----------------------------
+if {
+    "DialerTypeName",
+    "CallAttemptCount",
+    "ContactAttemptCount",
+    "SuccessAttemptCount",
+    "SalesCount"
+}.issubset(df.columns):
 
     dialer = (
         df.groupby(
             "DialerTypeName",
             as_index=False
-        )
-        [
+        )[
             [
                 "CallAttemptCount",
                 "ContactAttemptCount",
@@ -113,6 +240,9 @@ if (
         use_container_width=True
     )
 
+# -----------------------------
+# Call Analysis
+# -----------------------------
 if (
     "CallAnalysisName" in df.columns
     and "CallAttemptCount" in df.columns
@@ -126,16 +256,25 @@ if (
         .sum()
     )
 
+    st.subheader("Call Analysis Distribution")
+
+    fig_analysis = px.pie(
+        analysis,
+        names="CallAnalysisName",
+        values="CallAttemptCount"
+    )
+
     st.plotly_chart(
-        px.pie(
-            analysis,
-            names="CallAnalysisName",
-            values="CallAttemptCount",
-            title="Call Analysis Distribution"
-        ),
+        fig_analysis,
         use_container_width=True
     )
 
-st.dataframe(df.head(100),use_container_width=True)
+# -----------------------------
+# Raw Data
+# -----------------------------
+with st.expander("View Data"):
 
-
+    st.dataframe(
+        df,
+        use_container_width=True
+    )
